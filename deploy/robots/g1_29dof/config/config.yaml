@@ -14,6 +14,18 @@ FSM:
     Mimic_Gangnam_Style:
       id: 102
       type: Mimic
+    Mimic_Revenge:
+      id: 103
+      type: Mimic
+    Mimic_Shakehand:
+      id: 105
+      type: Mimic
+    Mimic_Wave:
+      id: 106
+      type: Mimic
+    Mimic_Dance102_Gangnam_Repeat2:
+      id: 108
+      type: Mimic
 
   Passive:
     transitions: 
@@ -63,8 +75,13 @@ FSM:
   Velocity:
     transitions: 
       Passive: LT + B.on_pressed
-      Mimic_Dance_102: LT(2s) + down.on_pressed
-      Mimic_Gangnam_Style: LT(2s) + left.on_pressed
+      # L1 = 左肩键，DSL 中写 LB（与 LT 左扳机区分）
+      Mimic_Dance_102: LB(2s) + down.on_pressed
+      Mimic_Gangnam_Style: LB(2s) + up.on_pressed
+      Mimic_Revenge: LB(2s) + left.on_pressed
+      Mimic_Shakehand: LB(2s) + A.on_pressed
+      Mimic_Wave: LB(2s) + Y.on_pressed
+      Mimic_Dance102_Gangnam_Repeat2: LB(2s) + X.on_pressed
 
     policy_dir: config/policy/velocity
     # policy_dir: ../../../logs/rsl_rl/unitree_g1_29dof_velocity
@@ -86,4 +103,44 @@ FSM:
     policy_dir: config/policy/mimic/gangnam_style/
     time_start: 5.2
     time_end: 25.5
+
+  Mimic_Revenge:
+    transitions:
+      Passive: LT + B.on_pressed
+      Velocity: RB + X.on_pressed
+    fps: 30
+    motion_file: config/policy/mimic/dance_revenge/params/revenge_fixed.csv
+    policy_dir: config/policy/mimic/dance_revenge/
+    time_start: 0.0
+    time_end: 22.05
+
+  Mimic_Shakehand:
+    transitions:
+      Passive: LT + B.on_pressed
+      Velocity: RB + X.on_pressed
+    fps: 60
+    motion_file: config/policy/mimic/shakehand/params/shakehand_retarget.csv
+    policy_dir: config/policy/mimic/shakehand/
+    time_start: 0.0
+    time_end: 3.85
+
+  Mimic_Dance102_Gangnam_Repeat2:
+    transitions:
+      Passive: LT + B.on_pressed
+      Velocity: RB + X.on_pressed
+    fps: 60
+    motion_file: config/policy/mimic/dance_gangnam/params/G1_dance102_gangnam_repeat2.bvh_60hz_trans15_xy.csv
+    policy_dir: config/policy/mimic/dance_gangnam/
+    time_start: 0.0
+    time_end: 83.7
+
+  Mimic_Wave:
+    transitions:
+      Passive: LT + B.on_pressed
+      Velocity: RB + X.on_pressed
+    fps: 60
+    motion_file: config/policy/mimic/wave/params/wave_retarget.csv
+    policy_dir: config/policy/mimic/wave/
+    time_start: 0.0
+    time_end: 60.0
 

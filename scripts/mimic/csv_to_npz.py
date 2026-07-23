@@ -56,19 +56,41 @@ from isaaclab.sim import SimulationContext
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.utils.math import axis_angle_from_quat, quat_conjugate, quat_mul, quat_slerp
-
+from isaaclab.terrains import TerrainImporterCfg
 ##
 # Pre-defined configs
 ##
-from unitree_rl_lab.assets.robots.unitree import UNITREE_G1_29DOF_CFG as ROBOT_CFG  # Currently only support G1-29dof
-
+# from unitree_rl_lab.assets.robots.unitree import UNITREE_G1_29DOF_CFG as ROBOT_CFG  # Currently only support G1-29dof
+from unitree_rl_lab.assets.robots.unitree import UNITREE_G1_29DOF_MIMIC_CFG as ROBOT_CFG  # match G1 mimic tasks (e.g. G1_ballet)
 
 @configclass
 class ReplayMotionsSceneCfg(InteractiveSceneCfg):
     """Configuration for a replay motions scene."""
 
     # ground plane
-    ground = AssetBaseCfg(prim_path="/World/defaultGroundPlane", spawn=sim_utils.GroundPlaneCfg())
+    ##ground = AssetBaseCfg(prim_path="/World/defaultGroundPlane", ##spawn=sim_utils.GroundPlaneCfg())
+    
+    
+    
+    # ground terrain (plane) — 避免 GroundPlaneCfg 的 collision_prim_path=None 问题
+    terrain = TerrainImporterCfg(
+        prim_path="/World/ground",
+        terrain_type="plane",
+        collision_group=-1,
+        physics_material=sim_utils.RigidBodyMaterialCfg(
+            friction_combine_mode="multiply",
+            restitution_combine_mode="multiply",
+            static_friction=1.0,
+            dynamic_friction=1.0,
+        ),
+        visual_material=sim_utils.MdlFileCfg(
+            mdl_path="{NVIDIA_NUCLEUS_DIR}/Materials/Base/Architecture/Shingles_01.mdl",
+            project_uvw=True,
+        ),
+    )
+
+
+    
 
     # lights
     sky_light = AssetBaseCfg(

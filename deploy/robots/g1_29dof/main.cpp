@@ -38,9 +38,15 @@ int main(int argc, char** argv)
 
     init_fsm_state();
 
-    FSMState::lowcmd->msg_.mode_machine() = 5; // 29dof
+    // Match firmware: common G1 29dof reports 5; some revisions (e.g. lock-waist) use 6 — use robot value.
+    const auto robot_mode = FSMState::lowstate->msg_.mode_machine();
+    spdlog::info("Robot reported mode_machine = {}", (int)robot_mode);
+    FSMState::lowcmd->msg_.mode_machine() = robot_mode;
     if(!FSMState::lowcmd->check_mode_machine(FSMState::lowstate)) {
-        spdlog::critical("Unmatched robot type.");
+        spdlog::critical("Unmatched robot type: robot mode_machine={}, expected={}. "
+                         "See unitree_ros/robots/g1_description/README.md for the table.",
+                         (int)FSMState::lowstate->msg_.mode_machine(),
+                         (int)FSMState::lowcmd->msg_.mode_machine());
         exit(-1);
     }
     

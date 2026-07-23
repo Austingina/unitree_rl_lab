@@ -30,6 +30,9 @@ parser.add_argument(
     help="Use the pre-trained checkpoint from Nucleus.",
 )
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
+parser.add_argument(
+    "-n", "--network", type=str, default=None, help="Network interface for robot/deploy (e.g. eth0)."
+)
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -64,9 +67,44 @@ import unitree_rl_lab.tasks  # noqa: F401
 from unitree_rl_lab.utils.parser_cfg import parse_env_cfg
 
 
+def _align_actor_noise_state_dict(model_sd: dict, policy: torch.nn.Module) -> dict:
+    """Match checkpoint ``std`` / ``log_std`` to the policy's ActorCritic parametrization.
+
+    Older checkpoints (``noise_std_type=scalar``) store ``std``; configs using ``log`` expect ``log_std``.
+    """
+    target = policy.state_dict()
+    out = dict(model_sd)
+    if "log_std" in target and "std" in out and "log_std" not in out:
+        std = out.pop("std")
+        out["log_std"] = torch.log(std.clamp(min=1e-8))
+        print("[INFO]: Checkpoint had scalar std; converted to log_std for current policy.")
+    elif "std" in target and "log_std" in out and "std" not in out:
+        log_std = out.pop("log_std")
+        out["std"] = torch.exp(log_std)
+        print("[INFO]: Checkpoint had log_std; converted to scalar std for current policy.")
+    return out
+
+
+def _load_policy_weights_for_play(runner, path: str, device: str) -> None:
+    """Load only policy weights (no optimizer); fixes std/log_std mismatch vs training-era checkpoints."""
+    loaded = torch.load(path, weights_only=False, map_location=device)
+    msd = loaded["model_state_dict"]
+    policy = runner.alg.policy
+    msd = _align_actor_noise_state_dict(msd, policy)
+    policy.load_state_dict(msd, strict=True)
+    runner.current_learning_iteration = loaded.get("iter", 0)
+
+
 def main():
     """Play with RSL-RL agent."""
     # parse configuration
+    
+    
+    if args_cli.network is not None:
+    	os.environ["UNITREE_NETWORK_INTERFACE"] = args_cli.network
+    	
+    	
+    	
     env_cfg = parse_env_cfg(
         args_cli.task,
         device=args_cli.device,
@@ -124,7 +162,8 @@ def main():
         runner = DistillationRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
     else:
         raise ValueError(f"Unsupported runner class: {agent_cfg.class_name}")
-    runner.load(resume_path)
+    # Play does not need optimizer state; align std/log_std with pre-log-param checkpoints.
+    _load_policy_weights_for_play(runner, resume_path, agent_cfg.device)
 
     # obtain the trained policy for inference
     policy = runner.get_inference_policy(device=env.unwrapped.device)

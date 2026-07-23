@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 export UNITREE_RL_LAB_PATH="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
 
 if ! [[ -z "${CONDA_PREFIX}" ]]; then
     python_exe=${CONDA_PREFIX}/bin/python

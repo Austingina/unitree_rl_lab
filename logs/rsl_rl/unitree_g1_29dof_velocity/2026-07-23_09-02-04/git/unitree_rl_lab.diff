@@ -1,0 +1,631 @@
+--- git status ---
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   deploy/robots/g1_29dof/CMakeLists.txt
+	modified:   deploy/robots/g1_29dof/config/config.yaml
+	modified:   deploy/robots/g1_29dof/config/policy/velocity/v0/exported/policy.onnx
+	modified:   deploy/robots/g1_29dof/config/policy/velocity/v0/params/deploy.yaml
+	modified:   deploy/robots/g1_29dof/main.cpp
+	modified:   scripts/mimic/csv_to_npz.py
+	modified:   scripts/rsl_rl/play.py
+	modified:   scripts/rsl_rl/train.py
+	modified:   source/unitree_rl_lab/unitree_rl_lab/assets/robots/unitree.py
+	modified:   source/unitree_rl_lab/unitree_rl_lab/tasks/locomotion/agents/rsl_rl_ppo_cfg.py
+	modified:   source/unitree_rl_lab/unitree_rl_lab/tasks/locomotion/robots/g1/29dof/velocity_env_cfg.py
+	modified:   source/unitree_rl_lab/unitree_rl_lab/tasks/mimic/agents/rsl_rl_ppo_cfg.py
+	modified:   source/unitree_rl_lab/unitree_rl_lab/tasks/mimic/robots/g1_29dof/dance_102/tracking_env_cfg.py
+	modified:   unitree_rl_lab.sh
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	deploy/robots/g1_29dof/check_cmake_ort.sh
+	deploy/robots/g1_29dof/config.zip
+	deploy/robots/g1_29dof/config/config1.yaml
+	deploy/robots/g1_29dof/config/policy/mimic/dance_102_x2/
+	deploy/robots/g1_29dof/config/policy/mimic/dance_gangnam/
+	deploy/robots/g1_29dof/config/policy/mimic/dance_revenge/
+	deploy/robots/g1_29dof/config/policy/mimic/gangnam_style_x2/
+	deploy/robots/g1_29dof/config/policy/mimic/shakehand/
+	deploy/robots/g1_29dof/config/policy/mimic/wave/
+	deploy/robots/g1_29dof/config/policy/velocity/v0/params/agent.yaml
+	deploy/robots/g1_29dof/config/policy/velocity/v0/params/velocity_env_cfg.py
+	doc/g1_29dof_onboard_build_and_deploy.md
+	doc/g1_mimic_dance_onboard_deploy.md
+	scripts/mimic/append_velocity_stand_tail.py
+	scripts/mimic/smooth_motion_csv.py
+	source/unitree_rl_lab/unitree_rl_lab/tasks/mimic/robots/g1_29dof/DDDDance/
+	source/unitree_rl_lab/unitree_rl_lab/tasks/mimic/robots/g1_29dof/G1_ballet/
+	source/unitree_rl_lab/unitree_rl_lab/tasks/mimic/robots/g1_29dof/dance_102_x2/
+	source/unitree_rl_lab/unitree_rl_lab/tasks/mimic/robots/g1_29dof/douyin_dance/
+	source/unitree_rl_lab/unitree_rl_lab/tasks/mimic/robots/g1_29dof/gangnanm_style_x2/
+	source/unitree_rl_lab/unitree_rl_lab/tasks/mimic/robots/g1_29dof/happy_dance/
+	source/unitree_rl_lab/unitree_rl_lab/tasks/mimic/robots/g1_29dof/heart/
+	source/unitree_rl_lab/unitree_rl_lab/tasks/mimic/robots/g1_29dof/revenge/
+	source/unitree_rl_lab/unitree_rl_lab/tasks/mimic/robots/g1_29dof/revenge_after/
+	source/unitree_rl_lab/unitree_rl_lab/tasks/mimic/robots/g1_29dof/shakehand/
+	source/unitree_rl_lab/unitree_rl_lab/tasks/mimic/robots/g1_29dof/wave/
+	source/unitree_rl_lab/unitree_rl_lab/tasks/mimic/robots/g1_29dof/wechat_dance/
+	unitree_ros/
+
+no changes added to commit (use "git add" and/or "git commit -a") 
+
+
+--- git diff ---
+diff --git a/deploy/robots/g1_29dof/CMakeLists.txt b/deploy/robots/g1_29dof/CMakeLists.txt
+index 0e29419..a1ae11c 100644
+--- a/deploy/robots/g1_29dof/CMakeLists.txt
++++ b/deploy/robots/g1_29dof/CMakeLists.txt
+@@ -1,31 +1,102 @@
+ cmake_minimum_required(VERSION 3.12)
+ project(g1_29dof_controller)
+ 
++# Declared as CACHE so `cmake -DONNXRUNTIME_ROOT=...` is always a known option (no "unused variable" warning).
++set(ONNXRUNTIME_ROOT "" CACHE PATH
++  "ONNX Runtime root (include/ and lib/). Empty: x64 uses repo thirdparty; aarch64 defaults to ~/unitree/onnxruntime-linux-aarch64-1.23.1")
++
+ set(CMAKE_CXX_STANDARD 17)
+ 
+ find_package(Boost REQUIRED COMPONENTS program_options)
+ find_package(yaml-cpp REQUIRED)
+ 
++# ONNX Runtime: x64 uses bundled thirdparty; ARM64 uses aarch64 tarball (see doc).
++# Some board images report CMAKE_SYSTEM_PROCESSOR oddly; fall back to `uname -m`.
++string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" _ort_cpu)
++if(_ort_cpu STREQUAL "" OR _ort_cpu STREQUAL "unknown")
++  execute_process(
++    COMMAND uname -m
++    OUTPUT_VARIABLE _ort_uname_m
++    OUTPUT_STRIP_TRAILING_WHITESPACE
++    ERROR_QUIET
++  )
++  string(TOLOWER "${_ort_uname_m}" _ort_cpu)
++endif()
++set(_ORT_ARM64 FALSE)
++if(_ort_cpu MATCHES "^(aarch64|arm64|armv8)")
++  set(_ORT_ARM64 TRUE)
++endif()
++message(STATUS "ORT host cpu: CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR} -> ${_ort_cpu} (arm64=${_ORT_ARM64})")
++
++# Override: cmake .. -DONNXRUNTIME_ROOT=/home/unitree/onnxruntime-linux-aarch64-1.23.1  (leading / required)
++if(_ORT_ARM64)
++  if(NOT ONNXRUNTIME_ROOT)
++    set(ONNXRUNTIME_ROOT "$ENV{HOME}/unitree/onnxruntime-linux-aarch64-1.23.1")
++  endif()
++else()
++  if(NOT ONNXRUNTIME_ROOT)
++    set(ONNXRUNTIME_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../thirdparty/onnxruntime-linux-x64-1.22.0")
++  endif()
++endif()
++
++if(NOT EXISTS "${ONNXRUNTIME_ROOT}/include/onnxruntime_cxx_api.h")
++  message(FATAL_ERROR
++    "ONNX Runtime not found at:\n  ${ONNXRUNTIME_ROOT}\n"
++    "Expected: ${ONNXRUNTIME_ROOT}/include/onnxruntime_cxx_api.h\n"
++    "aarch64: if you ran 'cd ~/unitree' then tar xf, root is usually:\n"
++    "  $ENV{HOME}/unitree/onnxruntime-linux-aarch64-1.23.1\n"
++    "(not $ENV{HOME}/onnxruntime-... — note the extra 'unitree' segment.)\n"
++    "Find on device: find \"$ENV{HOME}\" -name onnxruntime_cxx_api.h 2>/dev/null\n"
++    "x86_64: ensure thirdparty/onnxruntime-linux-x64-1.22.0 exists.")
++endif()
++
++file(GLOB _ort_libs "${ONNXRUNTIME_ROOT}/lib/libonnxruntime.so*")
++if(NOT _ort_libs)
++  file(GLOB _ort_libs "${ONNXRUNTIME_ROOT}/lib64/libonnxruntime.so*")
++endif()
++if(NOT _ort_libs)
++  message(FATAL_ERROR "No libonnxruntime.so* under ${ONNXRUNTIME_ROOT}/lib or .../lib64")
++endif()
++list(GET _ort_libs 0 ONNXRUNTIME_LIB)
++
++message(STATUS "ONNXRUNTIME_ROOT=${ONNXRUNTIME_ROOT}")
++message(STATUS "ONNXRUNTIME_LIB=${ONNXRUNTIME_LIB}")
++
+ include_directories(
+   /usr/include/eigen3
++  /usr/local/include
+   /usr/local/include/ddscxx # dds
+   /usr/local/include/iceoryx/v2.0.2 # dds
+   include
+-  ${PROJECT_SOURCE_DIR}/../../thirdparty/onnxruntime-linux-x64-1.22.0/include
+-  ${PROJECT_SOURCE_DIR}/../../include/
++  ${ONNXRUNTIME_ROOT}/include
++  ${CMAKE_CURRENT_SOURCE_DIR}/../../include/
+ )
+-
+ link_libraries(
+-  unitree_sdk2 ddsc ddscxx rt pthread # dds
++  unitree_sdk2
++  /usr/local/lib/libddscxx.so
++  /usr/local/lib/libddsc.so
++  rt pthread
+   libboost_program_options.a libyaml-cpp.a fmt
+-  ${PROJECT_SOURCE_DIR}/../../thirdparty/onnxruntime-linux-x64-1.22.0/lib/libonnxruntime.so.1.22.0
++  ${ONNXRUNTIME_LIB}
+ )
+ 
+ file(GLOB_RECURSE ADD_SRC_LIST
+-  ${PROJECT_SOURCE_DIR}/src/*.cpp
++  ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp
+ )
+ 
+ add_library(${PROJECT_NAME}_lib ${ADD_SRC_LIST})
+ link_libraries(${PROJECT_NAME}_lib)
+ 
+-add_executable(g1_ctrl main.cpp)
+\ No newline at end of file
++add_executable(g1_ctrl main.cpp)
++target_link_libraries(g1_ctrl PRIVATE
++  g1_29dof_controller_lib
++  unitree_sdk2
++  /usr/local/lib/libddscxx.so
++  /usr/local/lib/libddsc.so
++  rt
++  pthread
++  boost_program_options
++  yaml-cpp
++  fmt
++  ${ONNXRUNTIME_LIB}
++)
+diff --git a/deploy/robots/g1_29dof/config/config.yaml b/deploy/robots/g1_29dof/config/config.yaml
+index 8cc97fe..6ff6eaf 100644
+--- a/deploy/robots/g1_29dof/config/config.yaml
++++ b/deploy/robots/g1_29dof/config/config.yaml
+@@ -14,6 +14,18 @@ FSM:
+     Mimic_Gangnam_Style:
+       id: 102
+       type: Mimic
++    Mimic_Revenge:
++      id: 103
++      type: Mimic
++    Mimic_Shakehand:
++      id: 105
++      type: Mimic
++    Mimic_Wave:
++      id: 106
++      type: Mimic
++    Mimic_Dance102_Gangnam_Repeat2:
++      id: 108
++      type: Mimic
+ 
+   Passive:
+     transitions: 
+@@ -63,8 +75,13 @@ FSM:
+   Velocity:
+     transitions: 
+       Passive: LT + B.on_pressed
+-      Mimic_Dance_102: LT(2s) + down.on_pressed
+-      Mimic_Gangnam_Style: LT(2s) + left.on_pressed
++      # L1 = 左肩键，DSL 中写 LB（与 LT 左扳机区分）
++      Mimic_Dance_102: LB(2s) + down.on_pressed
++      Mimic_Gangnam_Style: LB(2s) + up.on_pressed
++      Mimic_Revenge: LB(2s) + left.on_pressed
++      Mimic_Shakehand: LB(2s) + A.on_pressed
++      Mimic_Wave: LB(2s) + Y.on_pressed
++      Mimic_Dance102_Gangnam_Repeat2: LB(2s) + X.on_pressed
+ 
+     policy_dir: config/policy/velocity
+     # policy_dir: ../../../logs/rsl_rl/unitree_g1_29dof_velocity
+@@ -87,3 +104,43 @@ FSM:
+     time_start: 5.2
+     time_end: 25.5
+ 
++  Mimic_Revenge:
++    transitions:
++      Passive: LT + B.on_pressed
++      Velocity: RB + X.on_pressed
++    fps: 30
++    motion_file: config/policy/mimic/dance_revenge/params/revenge_fixed.csv
++    policy_dir: config/policy/mimic/dance_revenge/
++    time_start: 0.0
++    time_end: 22.05
++
++  Mimic_Shakehand:
++    transitions:
++      Passive: LT + B.on_pressed
++      Velocity: RB + X.on_pressed
++    fps: 60
++    motion_file: config/policy/mimic/shakehand/params/shakehand_retarget.csv
++    policy_dir: config/policy/mimic/shakehand/
++    time_start: 0.0
++    time_end: 3.85
++
++  Mimic_Dance102_Gangnam_Repeat2:
++    transitions:
++      Passive: LT + B.on_pressed
++      Velocity: RB + X.on_pressed
++    fps: 60
++    motion_file: config/policy/mimic/dance_gangnam/params/G1_dance102_gangnam_repeat2.bvh_60hz_trans15_xy.csv
++    policy_dir: config/policy/mimic/dance_gangnam/
++    time_start: 0.0
++    time_end: 83.7
++
++  Mimic_Wave:
++    transitions:
++      Passive: LT + B.on_pressed
++      Velocity: RB + X.on_pressed
++    fps: 60
++    motion_file: config/policy/mimic/wave/params/wave_retarget.csv
++    policy_dir: config/policy/mimic/wave/
++    time_start: 0.0
++    time_end: 60.0
++
+diff --git a/deploy/robots/g1_29dof/config/policy/velocity/v0/exported/policy.onnx b/deploy/robots/g1_29dof/config/policy/velocity/v0/exported/policy.onnx
+index c50bb5f..47d8918 100644
+Binary files a/deploy/robots/g1_29dof/config/policy/velocity/v0/exported/policy.onnx and b/deploy/robots/g1_29dof/config/policy/velocity/v0/exported/policy.onnx differ
+diff --git a/deploy/robots/g1_29dof/config/policy/velocity/v0/params/deploy.yaml b/deploy/robots/g1_29dof/config/policy/velocity/v0/params/deploy.yaml
+index 54ebf64..743d277 100644
+--- a/deploy/robots/g1_29dof/config/policy/velocity/v0/params/deploy.yaml
++++ b/deploy/robots/g1_29dof/config/policy/velocity/v0/params/deploy.yaml
+@@ -2,10 +2,10 @@ joint_ids_map: [0, 6, 12, 1, 7, 13, 2, 8, 14, 3, 9, 15, 22, 4, 10, 16, 23, 5, 11
+   17, 24, 18, 25, 19, 26, 20, 27, 21, 28]
+ step_dt: 0.02
+ stiffness: [100.0, 100.0, 100.0, 150.0, 40.0, 40.0, 100.0, 100.0, 100.0, 150.0, 40.0,
+-  40.0, 200.0, 200.0, 200.0, 40.0, 40.0, 40.0, 40.0, 40.0, 40.0, 40.0, 40.0, 40.0,
+-  40.0, 40.0, 40.0, 40.0, 40.0]
++  40.0, 200.0, 40.0, 40.0, 40.0, 40.0, 40.0, 40.0, 40.0, 40.0, 40.0, 40.0, 40.0, 40.0,
++  40.0, 40.0, 40.0, 40.0]
+ damping: [2.0, 2.0, 2.0, 4.0, 2.0, 2.0, 2.0, 2.0, 2.0, 4.0, 2.0, 2.0, 5.0, 5.0, 5.0,
+-  10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
++  1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+ default_joint_pos: [-0.1, -0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.3, 0.3, 0.3,
+   0.3, -0.2, -0.2, 0.25, -0.25, 0.0, 0.0, 0.0, 0.0, 0.97, 0.97, 0.15, -0.15, 0.0,
+   0.0, 0.0, 0.0]
+@@ -14,7 +14,7 @@ commands:
+     ranges:
+       lin_vel_x: [-0.5, 1.0]
+       lin_vel_y: [-0.3, 0.3]
+-      ang_vel_z: [-0.2, 0.2]
++      ang_vel_z: [-0.45, 0.45]
+       heading: null
+ actions:
+   JointPositionAction:
+@@ -39,7 +39,6 @@ observations:
+     scale: [1.0, 1.0, 1.0]
+     history_length: 5
+   velocity_commands:
+-  # keyboard_velocity_commands:
+     params: {command_name: base_velocity}
+     clip: null
+     scale: [1.0, 1.0, 1.0]
+diff --git a/deploy/robots/g1_29dof/main.cpp b/deploy/robots/g1_29dof/main.cpp
+index be40418..fe32389 100644
+--- a/deploy/robots/g1_29dof/main.cpp
++++ b/deploy/robots/g1_29dof/main.cpp
+@@ -38,9 +38,15 @@ int main(int argc, char** argv)
+ 
+     init_fsm_state();
+ 
+-    FSMState::lowcmd->msg_.mode_machine() = 5; // 29dof
++    // Match firmware: common G1 29dof reports 5; some revisions (e.g. lock-waist) use 6 — use robot value.
++    const auto robot_mode = FSMState::lowstate->msg_.mode_machine();
++    spdlog::info("Robot reported mode_machine = {}", (int)robot_mode);
++    FSMState::lowcmd->msg_.mode_machine() = robot_mode;
+     if(!FSMState::lowcmd->check_mode_machine(FSMState::lowstate)) {
+-        spdlog::critical("Unmatched robot type.");
++        spdlog::critical("Unmatched robot type: robot mode_machine={}, expected={}. "
++                         "See unitree_ros/robots/g1_description/README.md for the table.",
++                         (int)FSMState::lowstate->msg_.mode_machine(),
++                         (int)FSMState::lowcmd->msg_.mode_machine());
+         exit(-1);
+     }
+     
+diff --git a/scripts/mimic/csv_to_npz.py b/scripts/mimic/csv_to_npz.py
+index ce4f5bb..bcc65d4 100644
+--- a/scripts/mimic/csv_to_npz.py
++++ b/scripts/mimic/csv_to_npz.py
+@@ -56,19 +56,41 @@ from isaaclab.sim import SimulationContext
+ from isaaclab.utils import configclass
+ from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
+ from isaaclab.utils.math import axis_angle_from_quat, quat_conjugate, quat_mul, quat_slerp
+-
++from isaaclab.terrains import TerrainImporterCfg
+ ##
+ # Pre-defined configs
+ ##
+-from unitree_rl_lab.assets.robots.unitree import UNITREE_G1_29DOF_CFG as ROBOT_CFG  # Currently only support G1-29dof
+-
++# from unitree_rl_lab.assets.robots.unitree import UNITREE_G1_29DOF_CFG as ROBOT_CFG  # Currently only support G1-29dof
++from unitree_rl_lab.assets.robots.unitree import UNITREE_G1_29DOF_MIMIC_CFG as ROBOT_CFG  # match G1 mimic tasks (e.g. G1_ballet)
+ 
+ @configclass
+ class ReplayMotionsSceneCfg(InteractiveSceneCfg):
+     """Configuration for a replay motions scene."""
+ 
+     # ground plane
+-    ground = AssetBaseCfg(prim_path="/World/defaultGroundPlane", spawn=sim_utils.GroundPlaneCfg())
++    ##ground = AssetBaseCfg(prim_path="/World/defaultGroundPlane", ##spawn=sim_utils.GroundPlaneCfg())
++    
++    
++    
++    # ground terrain (plane) — 避免 GroundPlaneCfg 的 collision_prim_path=None 问题
++    terrain = TerrainImporterCfg(
++        prim_path="/World/ground",
++        terrain_type="plane",
++        collision_group=-1,
++        physics_material=sim_utils.RigidBodyMaterialCfg(
++            friction_combine_mode="multiply",
++            restitution_combine_mode="multiply",
++            static_friction=1.0,
++            dynamic_friction=1.0,
++        ),
++        visual_material=sim_utils.MdlFileCfg(
++            mdl_path="{NVIDIA_NUCLEUS_DIR}/Materials/Base/Architecture/Shingles_01.mdl",
++            project_uvw=True,
++        ),
++    )
++
++
++    
+ 
+     # lights
+     sky_light = AssetBaseCfg(
+diff --git a/scripts/rsl_rl/play.py b/scripts/rsl_rl/play.py
+index fd5ff85..21159a6 100644
+--- a/scripts/rsl_rl/play.py
++++ b/scripts/rsl_rl/play.py
+@@ -30,6 +30,9 @@ parser.add_argument(
+     help="Use the pre-trained checkpoint from Nucleus.",
+ )
+ parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
++parser.add_argument(
++    "-n", "--network", type=str, default=None, help="Network interface for robot/deploy (e.g. eth0)."
++)
+ # append RSL-RL cli arguments
+ cli_args.add_rsl_rl_args(parser)
+ # append AppLauncher cli args
+@@ -64,9 +67,44 @@ import unitree_rl_lab.tasks  # noqa: F401
+ from unitree_rl_lab.utils.parser_cfg import parse_env_cfg
+ 
+ 
++def _align_actor_noise_state_dict(model_sd: dict, policy: torch.nn.Module) -> dict:
++    """Match checkpoint ``std`` / ``log_std`` to the policy's ActorCritic parametrization.
++
++    Older checkpoints (``noise_std_type=scalar``) store ``std``; configs using ``log`` expect ``log_std``.
++    """
++    target = policy.state_dict()
++    out = dict(model_sd)
++    if "log_std" in target and "std" in out and "log_std" not in out:
++        std = out.pop("std")
++        out["log_std"] = torch.log(std.clamp(min=1e-8))
++        print("[INFO]: Checkpoint had scalar std; converted to log_std for current policy.")
++    elif "std" in target and "log_std" in out and "std" not in out:
++        log_std = out.pop("log_std")
++        out["std"] = torch.exp(log_std)
++        print("[INFO]: Checkpoint had log_std; converted to scalar std for current policy.")
++    return out
++
++
++def _load_policy_weights_for_play(runner, path: str, device: str) -> None:
++    """Load only policy weights (no optimizer); fixes std/log_std mismatch vs training-era checkpoints."""
++    loaded = torch.load(path, weights_only=False, map_location=device)
++    msd = loaded["model_state_dict"]
++    policy = runner.alg.policy
++    msd = _align_actor_noise_state_dict(msd, policy)
++    policy.load_state_dict(msd, strict=True)
++    runner.current_learning_iteration = loaded.get("iter", 0)
++
++
+ def main():
+     """Play with RSL-RL agent."""
+     # parse configuration
++    
++    
++    if args_cli.network is not None:
++    	os.environ["UNITREE_NETWORK_INTERFACE"] = args_cli.network
++    	
++    	
++    	
+     env_cfg = parse_env_cfg(
+         args_cli.task,
+         device=args_cli.device,
+@@ -124,7 +162,8 @@ def main():
+         runner = DistillationRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
+     else:
+         raise ValueError(f"Unsupported runner class: {agent_cfg.class_name}")
+-    runner.load(resume_path)
++    # Play does not need optimizer state; align std/log_std with pre-log-param checkpoints.
++    _load_policy_weights_for_play(runner, resume_path, agent_cfg.device)
+ 
+     # obtain the trained policy for inference
+     policy = runner.get_inference_policy(device=env.unwrapped.device)
+diff --git a/scripts/rsl_rl/train.py b/scripts/rsl_rl/train.py
+index 28dae91..2a46fbf 100644
+--- a/scripts/rsl_rl/train.py
++++ b/scripts/rsl_rl/train.py
+@@ -43,6 +43,9 @@ parser.add_argument("--max_iterations", type=int, default=None, help="RL Policy
+ parser.add_argument(
+     "--distributed", action="store_true", default=False, help="Run training with multiple GPUs or nodes."
+ )
++parser.add_argument(
++    "-n", "--network", type=str, default=None, help="Network interface for robot/deploy (e.g. eth0)."
++)
+ # append RSL-RL cli arguments
+ cli_args.add_rsl_rl_args(parser)
+ # append AppLauncher cli args
+@@ -122,6 +125,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
+     """Train with RSL-RL agent."""
+     # override configurations with non-hydra CLI arguments
+     agent_cfg = cli_args.update_rsl_rl_cfg(agent_cfg, args_cli)
++    
++    
++    if args_cli.network is not None:
++    	os.environ["UNITREE_NETWORK_INTERFACE"] = args_cli.network
++    
++    
+     env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
+     agent_cfg.max_iterations = (
+         args_cli.max_iterations if args_cli.max_iterations is not None else agent_cfg.max_iterations
+diff --git a/source/unitree_rl_lab/unitree_rl_lab/assets/robots/unitree.py b/source/unitree_rl_lab/unitree_rl_lab/assets/robots/unitree.py
+index e78413a..e98b166 100644
+--- a/source/unitree_rl_lab/unitree_rl_lab/assets/robots/unitree.py
++++ b/source/unitree_rl_lab/unitree_rl_lab/assets/robots/unitree.py
+@@ -17,8 +17,8 @@ from isaaclab.utils import configclass
+ 
+ from unitree_rl_lab.assets.robots import unitree_actuators
+ 
+-UNITREE_MODEL_DIR = "path/to/unitree_model"  # Replace with the actual path to your unitree_model directory
+-UNITREE_ROS_DIR = "path/to/unitree_ros"  # Replace with the actual path to your unitree_ros package
++UNITREE_MODEL_DIR = "/home/cityur/unitree_rl_lab/isaaclab/isaaclab/assets/robots/unitree/g1"  # Replace with the actual path to your unitree_model directory
++UNITREE_ROS_DIR = "/home/cityur/unitree_rl_lab/unitree_ros"  # Replace with the actual path to your unitree_ros package
+ 
+ 
+ @configclass
+@@ -395,12 +395,12 @@ UNITREE_G1_23DOF_CFG = UnitreeArticulationCfg(
+ )
+ 
+ UNITREE_G1_29DOF_CFG = UnitreeArticulationCfg(
+-    # spawn=UnitreeUrdfFileCfg(
+-    #     asset_path=f"{UNITREE_ROS_DIR}/robots/g1_description/g1_29dof_rev_1_0.urdf",
+-    # ),
+-    spawn=UnitreeUsdFileCfg(
+-        usd_path=f"{UNITREE_MODEL_DIR}/G1/29dof/usd/g1_29dof_rev_1_0/g1_29dof_rev_1_0.usd",
+-    ),
++     spawn=UnitreeUrdfFileCfg(
++         asset_path=f"{UNITREE_ROS_DIR}/robots/g1_description/g1_29dof_rev_1_0.urdf",
++     ),
++    ##spawn=UnitreeUsdFileCfg(
++    ##    usd_path=f"{UNITREE_MODEL_DIR}/G1/29dof/usd/g1_29dof_rev_1_0/g1_29dof_rev_1_0.usd",
++    ##),
+     init_state=ArticulationCfg.InitialStateCfg(
+         pos=(0.0, 0.0, 0.8),
+         joint_pos={
+@@ -529,12 +529,12 @@ DAMPING_7520_22 = 2.0 * DAMPING_RATIO * ARMATURE_7520_22 * NATURAL_FREQ  # 6.308
+ DAMPING_4010 = 2.0 * DAMPING_RATIO * ARMATURE_4010 * NATURAL_FREQ  # 1.06814150219
+ 
+ UNITREE_G1_29DOF_MIMIC_CFG = UnitreeArticulationCfg(
+-    # spawn=UnitreeUrdfFileCfg(
+-    #     asset_path=f"{UNITREE_ROS_DIR}/robots/g1_description/g1_29dof_rev_1_0.urdf",
+-    # ),
+-    spawn=UnitreeUsdFileCfg(
+-        usd_path=f"{UNITREE_MODEL_DIR}/G1/29dof/usd/g1_29dof_rev_1_0/g1_29dof_rev_1_0.usd",
+-    ),
++     spawn=UnitreeUrdfFileCfg(
++         asset_path=f"{UNITREE_ROS_DIR}/robots/g1_description/g1_29dof_rev_1_0.urdf",
++     ),
++    #spawn=UnitreeUsdFileCfg(
++    #    usd_path=f"{UNITREE_MODEL_DIR}/G1/29dof/usd/g1_29dof_rev_1_0/g1_29dof_rev_1_0.usd",
++    #),
+     init_state=ArticulationCfg.InitialStateCfg(
+         pos=(0.0, 0.0, 0.76),
+         joint_pos={
+diff --git a/source/unitree_rl_lab/unitree_rl_lab/tasks/locomotion/agents/rsl_rl_ppo_cfg.py b/source/unitree_rl_lab/unitree_rl_lab/tasks/locomotion/agents/rsl_rl_ppo_cfg.py
+index f5f98fb..2df19fb 100644
+--- a/source/unitree_rl_lab/unitree_rl_lab/tasks/locomotion/agents/rsl_rl_ppo_cfg.py
++++ b/source/unitree_rl_lab/unitree_rl_lab/tasks/locomotion/agents/rsl_rl_ppo_cfg.py
+@@ -15,7 +15,8 @@ class BasePPORunnerCfg(RslRlOnPolicyRunnerCfg):
+     experiment_name = ""  # same as task name
+     empirical_normalization = False
+     policy = RslRlPpoActorCriticCfg(
+-        init_noise_std=1.0,
++        init_noise_std=0.25,
++        noise_std_type="log",
+         actor_hidden_dims=[512, 256, 128],
+         critic_hidden_dims=[512, 256, 128],
+         activation="elu",
+@@ -24,13 +25,13 @@ class BasePPORunnerCfg(RslRlOnPolicyRunnerCfg):
+         value_loss_coef=1.0,
+         use_clipped_value_loss=True,
+         clip_param=0.2,
+-        entropy_coef=0.01,
++        entropy_coef=0.005,
+         num_learning_epochs=5,
+         num_mini_batches=4,
+         learning_rate=1.0e-3,
+         schedule="adaptive",
+         gamma=0.99,
+         lam=0.95,
+-        desired_kl=0.01,
++        desired_kl=0.005,
+         max_grad_norm=1.0,
+     )
+diff --git a/source/unitree_rl_lab/unitree_rl_lab/tasks/locomotion/robots/g1/29dof/velocity_env_cfg.py b/source/unitree_rl_lab/unitree_rl_lab/tasks/locomotion/robots/g1/29dof/velocity_env_cfg.py
+index ea9b65b..5d6568d 100644
+--- a/source/unitree_rl_lab/unitree_rl_lab/tasks/locomotion/robots/g1/29dof/velocity_env_cfg.py
++++ b/source/unitree_rl_lab/unitree_rl_lab/tasks/locomotion/robots/g1/29dof/velocity_env_cfg.py
+@@ -167,11 +167,16 @@ class CommandsCfg:
+         rel_heading_envs=1.0,
+         heading_command=False,
+         debug_vis=True,
++        # 初始勿仅用 ±0.1：训练几乎看不见位移，play 又用 limit_ranges → 严重 OOD。
+         ranges=mdp.UniformLevelVelocityCommandCfg.Ranges(
+-            lin_vel_x=(-0.1, 0.1), lin_vel_y=(-0.1, 0.1), ang_vel_z=(-0.1, 0.1)
++            lin_vel_x=(-0.25, 0.5),
++            lin_vel_y=(-0.1, 0.1),
++            ang_vel_z=(-0.4, 0.4),
+         ),
+         limit_ranges=mdp.UniformLevelVelocityCommandCfg.Ranges(
+-            lin_vel_x=(-0.5, 1.0), lin_vel_y=(-0.3, 0.3), ang_vel_z=(-0.2, 0.2)
++            lin_vel_x=(-0.5, 1.0),
++            lin_vel_y=(-0.15, 0.15),
++            ang_vel_z=(-0.7, 0.7),
+         ),
+     )
+ 
+@@ -245,7 +250,7 @@ class RewardsCfg:
+         params={"command_name": "base_velocity", "std": math.sqrt(0.25)},
+     )
+     track_ang_vel_z = RewTerm(
+-        func=mdp.track_ang_vel_z_exp, weight=0.5, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
++        func=mdp.track_ang_vel_z_exp, weight=1.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
+     )
+ 
+     alive = RewTerm(func=mdp.is_alive, weight=0.15)
+@@ -261,7 +266,7 @@ class RewardsCfg:
+ 
+     joint_deviation_arms = RewTerm(
+         func=mdp.joint_deviation_l1,
+-        weight=-0.1,
++        weight=-0.28,
+         params={
+             "asset_cfg": SceneEntityCfg(
+                 "robot",
+@@ -352,6 +357,7 @@ class CurriculumCfg:
+ 
+     terrain_levels = CurrTerm(func=mdp.terrain_levels_vel)
+     lin_vel_cmd_levels = CurrTerm(mdp.lin_vel_cmd_levels)
++    ang_vel_cmd_levels = CurrTerm(mdp.ang_vel_cmd_levels)
+ 
+ 
+ @configclass
+diff --git a/source/unitree_rl_lab/unitree_rl_lab/tasks/mimic/agents/rsl_rl_ppo_cfg.py b/source/unitree_rl_lab/unitree_rl_lab/tasks/mimic/agents/rsl_rl_ppo_cfg.py
+index 541d6af..7d2fc6a 100644
+--- a/source/unitree_rl_lab/unitree_rl_lab/tasks/mimic/agents/rsl_rl_ppo_cfg.py
++++ b/source/unitree_rl_lab/unitree_rl_lab/tasks/mimic/agents/rsl_rl_ppo_cfg.py
+@@ -16,6 +16,7 @@ class BasePPORunnerCfg(RslRlOnPolicyRunnerCfg):
+     empirical_normalization = False
+     policy = RslRlPpoActorCriticCfg(
+         init_noise_std=1.0,
++        noise_std_type="log",
+         actor_hidden_dims=[512, 256, 128],
+         critic_hidden_dims=[512, 256, 128],
+         activation="elu",
+diff --git a/source/unitree_rl_lab/unitree_rl_lab/tasks/mimic/robots/g1_29dof/dance_102/tracking_env_cfg.py b/source/unitree_rl_lab/unitree_rl_lab/tasks/mimic/robots/g1_29dof/dance_102/tracking_env_cfg.py
+index 7bb98ad..7bb7388 100644
+--- a/source/unitree_rl_lab/unitree_rl_lab/tasks/mimic/robots/g1_29dof/dance_102/tracking_env_cfg.py
++++ b/source/unitree_rl_lab/unitree_rl_lab/tasks/mimic/robots/g1_29dof/dance_102/tracking_env_cfg.py
+@@ -25,6 +25,9 @@ import unitree_rl_lab.tasks.mimic.mdp as mdp
+ from unitree_rl_lab.assets.robots.unitree import UNITREE_G1_29DOF_MIMIC_ACTION_SCALE
+ from unitree_rl_lab.assets.robots.unitree import UNITREE_G1_29DOF_MIMIC_CFG as ROBOT_CFG
+ 
++
++
++
+ ##
+ # Scene definition
+ ##
+diff --git a/unitree_rl_lab.sh b/unitree_rl_lab.sh
+index 8563ea3..3adefbf 100755
+--- a/unitree_rl_lab.sh
++++ b/unitree_rl_lab.sh
+@@ -1,6 +1,7 @@
+ #!/usr/bin/env bash
+ 
+ export UNITREE_RL_LAB_PATH="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
++export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
+ 
+ if ! [[ -z "${CONDA_PREFIX}" ]]; then
+     python_exe=${CONDA_PREFIX}/bin/python
