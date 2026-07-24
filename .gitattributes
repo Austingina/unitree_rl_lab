@@ -16,3 +16,5 @@
 *.pt filter=lfs diff=lfs merge=lfs -text
 *.jit filter=lfs diff=lfs merge=lfs -text
 doc/sim2sim.gif filter=lfs diff=lfs merge=lfs -text
+# Keep this trained checkpoint as a regular Git blob so it stays downloadable even when LFS quota is exhausted.
+logs/rsl_rl/unitree_g1_29dof_velocity/2026-07-23_09-02-04/model_49999.pt -filter -diff -merge -text
